@@ -103,14 +103,8 @@ void SerialCommand::readSerial()
 			inChar = SoftSerial->read();   // Read single available character, there may be more waiting
 			#endif
 		}
-		#ifdef SERIALCOMMANDDEBUG
-		Serial.print(inChar);   // Echo back to serial stream
-		#endif
+
 		if (inChar==term) {     // Check for the terminator (default '\r') meaning end of command
-			#ifdef SERIALCOMMANDDEBUG
-			Serial.print("Received: "); 
-			Serial.println(buffer);
-		    #endif
 			bufPos=0;           // Reset to start of buffer
 			token = strtok_r(buffer,delim,&last);   // Search for command at start of buffer
 			if (token == NULL) return; 
@@ -124,28 +118,40 @@ void SerialCommand::readSerial()
 				Serial.println("]");
 				#endif
 				// Compare the found command against the list of known commands for a match
-				if (strncmp(token,CommandList[i].command,SERIALCOMMANDBUFFER) == 0) 
+				if (strncmp(token, CommandList[i].command, MAXCOMMANDLENGTH) == 0) 
 				{
 					#ifdef SERIALCOMMANDDEBUG
 					Serial.print("Matched Command: "); 
 					Serial.println(token);
 					#endif
 					// Execute the stored handler function for the command
+					(*inFunction)();
 					(*CommandList[i].function)(); 
 					clearBuffer(); 
-					matched=true; 
+					matched=true;
+					(*outFunction)();
 					break; 
 				}
 			}
 			if (matched==false) {
 				(*defaultHandler)(); 
-				clearBuffer(); 
+				clearBuffer();
 			}
 
 		}
-		if (isprint(inChar))   // Only printable characters into the buffer
+
+		if (isascii(inChar))   // Only printable characters into the buffer
 		{
-			buffer[bufPos++]=inChar;   // Put character into buffer
+			if(inChar ==  127 && bufPos>0) { //rewind buffer if backspace
+				inChar = 8;
+				Serial.write(inChar);   // Echo back to serial stream
+				Serial.print(" ");   // Echo back to serial stream
+				Serial.write(inChar);   // Echo back to serial stream
+				bufPos--;
+			} else if(isprint(inChar)) {
+				buffer[bufPos++]=inChar;   // Put character into buffer
+				Serial.print(inChar);
+			}
 			buffer[bufPos]='\0';  // Null terminate
 			if (bufPos > SERIALCOMMANDBUFFER-1) bufPos=0; // wrap buffer around if full  
 		}
@@ -165,7 +171,7 @@ void SerialCommand::addCommand(const char *command, void (*function)())
 		Serial.println(command); 
 		#endif
 		
-		strncpy(CommandList[numCommand].command,command,SERIALCOMMANDBUFFER); 
+		strncpy(CommandList[numCommand].command,command,MAXCOMMANDLENGTH); 
 		CommandList[numCommand].function = function; 
 		numCommand++; 
 	} else {
@@ -184,3 +190,16 @@ void SerialCommand::addDefaultHandler(void (*function)())
 {
 	defaultHandler = function;
 }
+
+// This sets up a handler to be called after any command
+void SerialCommand::addOutHandler(void (*function)())
+{
+	outFunction = function;
+}
+
+// This sets up a handler to be called before any command
+void SerialCommand::addInHandler(void (*function)())
+{
+	inFunction = function;
+}
+
